@@ -1,0 +1,37 @@
+body {
+    div .header {
+        div .titleBar {
+            
+        }
+        div .optionBar {
+        
+        }    
+    
+    }
+    div .main {
+    
+    }
+}
+
+
+
+style {
+    body {
+        flex: array;
+        flexDirection: row;
+        spacing: 0;
+    }
+    .header {
+        width = fill;
+        height = 3;
+        color = colors.red;
+        flex: spaced;
+        flexDirection: column;
+    }
+    .main {
+        height = fill;
+        width = fill;
+        color = color.lightGray;
+    }
+
+}
