@@ -1,31 +1,17 @@
 term.clear()
 term.setCursorPos(1,1)
 
+local id = 0
 
-local Item = {
-	width = 0,
-	height = 0,
-	padding = 0,
-	color = nil,
-    flex_x = 0,
-    flex_y = 0,
-    left = 0,
-    top = 0,
-	x = 1,
-	y = 1
-}
-Item.__index = Item
-
-function Item:new(width, height, padding, color)
-	local o = setmetatable({}, self)
-	o.width = width
-	o.height = height
-	o.padding = padding
-	o.color = color
-	return o
+local function merge(t1, t2)
+    for k, v in pairs(t2) do
+        t1[k] = v
+    end
+    return t1
 end
 
 local Flex = {
+	None = 0,
 	Array = 1,
 	Spaced = 2,
 	Fill = 1024
@@ -44,25 +30,82 @@ local FlexDirection = {
     Row = 2
 }
 
-
-local group = {
-	children = {
-		Item:new(3, 3, 1, colors.red),
-		Item:new(3, 3, 0, colors.blue),
-		Item:new(3, 3, 1, colors.green),
-		--Item:new(3, 3, 0, colors.white),
-	},
+local Item = {
+	id =0 ,
 	width = 0,
 	height = 0,
-	flex = Flex.Array,
-    flexDirection = FlexDirection.Column,
-	orientation = Orientation.Right,
+	padding = 0,
+	color = nil,
+    flex_x = 0,
+    flex_y = 0,
+    ox = 0,
+    oy = 0,
+	x = 0,
+	y = 0,
+	flex = nil,
+	flexDirection = nil,
+	orientation = nil,
 	spacing = 0
 }
+Item.__index = Item
 
-group.width, group.height = term.getSize()
-group.width = group.width + 1
-group.height = group.height + 1
+function assignID()
+	id = id + 1
+	return id
+end
+
+function Item:new(args)
+	local o = setmetatable({}, self)
+
+	args.id = assignID()
+
+	for k, v in pairs(args) do 
+		o[k] = v
+	end	
+
+	o.children = {}
+
+	return o
+end
+
+
+function Item:setPosition(x,y)
+	self.x = x 
+	self.y = y
+end
+
+function Item:setOffset(ox,oy)
+	self.ox = ox 
+	self.oy = oy 
+end
+
+function Item:setSize(w,h)
+	self.width = w
+	self.height = h 
+end 
+
+function Item:addChild(item)
+	table.insert(self.children, item)
+	item.parent = self
+end
+
+function Item:getFlexOffset()
+	return self.flex_x, self.flex_y
+end
+
+function Item:translate(x,y)
+	self.x = self.x + x 
+	self.y = self.y + y 
+end 
+
+function Item:getCoords()
+	local px, py = 0, 0
+	if self.parent then 
+		px, py = self.parent:getCoords()
+	end
+	return self.x + self.ox + self.flex_x + px, self.y + self.oy + self.flex_y + py
+end
+
 
 local function measure(c)
 	local g = {}
@@ -79,30 +122,27 @@ local function measure(c)
 	return "{" .. g[2][1] - g[1][1] + 1 .. "," .. g[2][2] - g[1][2] + 1 .. "}"
 end
 
+local function getSumHeight(items)
+	local a = 0
+	for _, item in pairs(items) do 
+		a = a + item.height + item.padding * 2
+	end 
+	return a
+end
 
-local function solveFlexSpaced(group)
+local function getSumWidth(items)
+	local a = 0
 
-    local sum_item_size = 0
-    local dsize = 0
-    local gaps = {}
-    local draw_coords = {}
+	for _, item in pairs(items) do 
+		a = a + item.width + item.padding * 2
+	end 
+	return a
+end
 
-    if group.flexDirection == FlexDirection.Row then
-        for _, item in pairs(group.children) do
-            sum_item_size = sum_item_size + item.height + item.padding * 2
-        end
-        dsize = group.height - sum_item_size
-    elseif group.flexDirection == FlexDirection.Column then
-        for _, item in pairs(group.children) do
-            sum_item_size = sum_item_size + item.width + item.padding * 2
-        end
-        dsize = group.width - sum_item_size
-    else
-        print("Invalid FlexDirection")
-        return
-    end
+local function getGaps(items, dsize)
+	local gaps = {} 
 
-    local amt_gaps = #group.children - 1
+	local amt_gaps = #items - 1
     local gap_size = math.floor(dsize/amt_gaps)
     local amt_lgaps = dsize % amt_gaps
 
@@ -116,32 +156,94 @@ local function solveFlexSpaced(group)
         table.insert(gaps, z)
     end
 
-    local cx = 1
-    draw_coords[1] = 1
+	return gaps
+end
+
+local function calculateRowSpacedCoords(items, gaps)
+
+	local cx = 0
+	local draw_coords = {cx+0}
+
+	for i=1, #items-1 do
+		cx = cx + items[i].height + items[i].padding + items[i+1].padding
+		cx = cx + gaps[i]
+		table.insert(draw_coords, cx)
+	end
+	return draw_coords
+end
+
+local function calculateColumnSpacedCoords(items, gaps)
+
+	local cx = 0
+	local draw_coords = {cx+0}
+
+	for i=1, #items-1 do
+		cx = cx + items[i].width + items[i].padding + items[i+1].padding
+		cx = cx + gaps[i]
+		table.insert(draw_coords, cx)
+	end
+
+	return draw_coords
+
+end
+
+local function setItemFlexCoordinatesY(items, coords)
+	for i=1, #coords do
+		items[i].flex_y = coords[i]
+	end
+end
+
+local function setItemFlexCoordinatesX(items, coords)
+	for i=1, #coords do
+		items[i].flex_x = coords[i]
+	end
+end
+
+local function solveFlexSpaced(group)
+
+	if group.flex == nil then return end 
+	if #group.children == 0 then return end 
+
+    local sum_item_size = 0
+    local dsize = 0
+    local gaps = {}
+    local draw_coords = {}
+
+	-- get the total width of the group (sum_item_size) and the amount of space remaining (dsize)
+	if group.flexDirection == nil then 
+		group.flexDirection = FlexDirection.Column 
+	end 
 
     if group.flexDirection == FlexDirection.Row then
 
-        for i=1, #group.children-1 do
-            cx = cx + group.children[i].height + group.children[i].padding + group.children[i+1].padding
-            cx = cx + gaps[i]
-            table.insert(draw_coords, cx)
-        end
-
-        for i=1, #draw_coords do
-            group.children[i].y = draw_coords[i]
-        end
+        sum_item_size = getSumHeight(group.children)
+        dsize = group.height - sum_item_size
 
     elseif group.flexDirection == FlexDirection.Column then
 
-        for i=1, #group.children-1 do
-            cx = cx + group.children[i].width + group.children[i].padding + group.children[i+1].padding
-            cx = cx + gaps[i]
-            table.insert(draw_coords, cx)
-        end
+		sum_item_size = getSumWidth(group.children)
+        dsize = group.width - sum_item_size
 
-        for i=1, #draw_coords do
-            group.children[i].x = draw_coords[i]
-        end
+	else
+        print("Invalid FlexDirection")
+        return
+    end
+
+    gaps = getGaps(group.children, dsize)
+
+    local cx = 0
+    draw_coords[1] = cx
+
+    if group.flexDirection == FlexDirection.Row then
+
+        draw_coords = calculateRowSpacedCoords(group.children, gaps)
+		setItemFlexCoordinatesY(group.children, draw_coords)
+        
+
+    elseif group.flexDirection == FlexDirection.Column then
+
+        draw_coords = calculateColumnSpacedCoords(group.children, gaps)
+		setItemFlexCoordinatesX(group.children, draw_coords)
 
     end
 
@@ -231,8 +333,11 @@ local function solveFlexArray(group)
 
 
 end
+
 local function solveFlex(group)
 
+	
+	if group.flex == nil then return end
 	if group.flex == Flex.Spaced then
 
         solveFlexSpaced(group)
@@ -245,17 +350,30 @@ local function solveFlex(group)
         print("Invalid Flex type")
 	end
 
+	for _, item in pairs(group.children) do 
+
+		solveFlex(item)
+
+	end
+
+end
+
+
+local function drawItem(item)
+	local x, y = item:getCoords()
+	paintutils.drawFilledBox(
+		x,
+		y,
+		x + item.width - 1,
+		y + item.height - 1,
+		item.color
+	)
 end
 
 local function render(group)
+	drawItem(group)
 	for k, v in pairs(group.children) do
-		paintutils.drawFilledBox(
-			v.x,
-			v.y,
-			v.x + v.width - 1,
-			v.y + v.height - 1,
-			v.color
-		)
+		render(v)
 	end
 end
 
@@ -267,62 +385,126 @@ local function readMeasure(c)
 	term.write(s)
 end
 
+local w, h = term.getSize()
+local group = Item:new({
+	width = w,
+	height = 3,
+	ox = 1,
+	oy = 1,
+	color = colors.gray,
+	flex = Flex.Spaced,
+	flexDirection = Flex.Row,
+	orientation = Flex.Top
+})
+term.setCursorPos(10,10)
+
+local test = Item:new({
+	width = 9,
+	height = 3,
+	color = colors.lightGray,
+	flex = Flex.Spaced,
+	flexDirection = FlexDirection.Row,
+	orientation = Orientation.Top
+})
+
+test:addChild(Item:new({
+	width = 1,
+	height = 1,
+	color = colors.purple
+}))
+
+test:addChild(Item:new({
+	width = 1,
+	height = 1,
+	color = colors.orange
+}))
+test:addChild(Item:new({
+	width = 1,
+	height = 1,
+	color = colors.blue
+}))
+
+--term.setCursorPos(10,10)
+
+group:addChild(test)
+
+group:addChild(Item:new({
+	width = 3,
+	height = 3,
+	color = colors.green
+}))
+group:addChild(Item:new({
+	width = 3,
+	height = 3,
+	color = colors.yellow
+}))
+
 
 solveFlex(group)
 render(group)
 
-
-readMeasure(1)
-
+--readMeasure(1)
 
 --[[
 
-local function solveFlexArray(group)
+clean up flex array solve 
+relook flex type verifications (flex.direction == something_bad)
+	default flex will be flex.array where spacing = 0
+rename orientation to flexOrientation
 
-end
+add width % 
 
+use buffer?
+	can imagine problems writing text that overlaps two different items
+store all items in a box and render based on z-index
+assign z-index based on nested level
 
+flex resolving 
+shifting container sizes
+clothesline alignment
 
-
-width = Flex.Fill
-
-Flex.Spaced
-	not sure if you should be able to use Flex.Fill in a Flex.Spaced box
-
-Flex.Array
-	count # of elements with Flex.Fill, use space remaining after accounting for "spacing" and "padding" to evenly
-	divide the amount of Flex.Fill available
-
-how would Flex.Fill work with a maxWidth variable?
-how would Flex.Fill work with a fillScale variable? ie. item1(width=fill, fillScale = 2), item2(width=fill, fillScale=1)
-
-keep track of groups with flex.fill to do an early check before treating flex box like a Flex.Spaced?
-it has become obvious that flex.fill does not work in a Flex.Spaced container
-
-make array alignment for flex.array plz
+            ###      ##
+	---#----###------##-
+            ###        
 
 
-item1
-    width = 3
-    ...
-item2
-    width = fill
-    padding = 1
-    ...
-item3
-    width = 3
-    ...
+    ---#----###------##- 
+	        ###      ## 
+			###
 
-fillPriority = 1
-fillPriority = 2
-...
-for children which use fill in a flex environment, will add fill to the children
-    which have the lower priority first
-    once all priorities of n=1 have been met, the next level of prioriities will be filled
-    this allows better control of which elements grow with an expanding monitor
+separate item constructor to its own class 
 
-expect item2.width = (dsize - tfiw)
+anchor.lua
+text
+textAlign
+draggable containers
+checkboxes
+input
+textarea
 
+silhouette rendering? move box, only redraw what needs to be redrawn
+dynamic = true 
+	(has buffer that stores colors of stuff underneath it)
 
+scrollX and scrollY
+makes buffers somewhat imperative
+
+pages:
+	some kind of built in dynamic loading system
+
+sheets:
+	should be very doable with arrays
+	
+
+browsing:
+	transmit body item as table?
+	key value pairs possibly
+	transmit and verify version
+	downloading screen!
+
+remote connect:
+	login system
+	literally transmitting ui from one computer to the other
+	how to transmit events?
 
 ]]
