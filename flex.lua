@@ -59,9 +59,9 @@ function Item:new(args)
 
 	args.id = assignID()
 
-	for k, v in pairs(args) do 
+	for k, v in pairs(args) do
 		o[k] = v
-	end	
+	end
 
 	o.children = {}
 
@@ -70,19 +70,19 @@ end
 
 
 function Item:setPosition(x,y)
-	self.x = x 
+	self.x = x
 	self.y = y
 end
 
 function Item:setOffset(ox,oy)
-	self.ox = ox 
-	self.oy = oy 
+	self.ox = ox
+	self.oy = oy
 end
 
 function Item:setSize(w,h)
 	self.width = w
-	self.height = h 
-end 
+	self.height = h
+end
 
 function Item:addChild(item)
 	table.insert(self.children, item)
@@ -94,13 +94,13 @@ function Item:getFlexOffset()
 end
 
 function Item:translate(x,y)
-	self.x = self.x + x 
-	self.y = self.y + y 
-end 
+	self.x = self.x + x
+	self.y = self.y + y
+end
 
 function Item:getCoords()
 	local px, py = 0, 0
-	if self.parent then 
+	if self.parent then
 		px, py = self.parent:getCoords()
 	end
 	return self.x + self.ox + self.flex_x + px, self.y + self.oy + self.flex_y + py
@@ -124,23 +124,23 @@ end
 
 local function getSumHeight(items)
 	local a = 0
-	for _, item in pairs(items) do 
+	for _, item in pairs(items) do
 		a = a + item.height + item.padding * 2
-	end 
+	end
 	return a
 end
 
 local function getSumWidth(items)
 	local a = 0
 
-	for _, item in pairs(items) do 
+	for _, item in pairs(items) do
 		a = a + item.width + item.padding * 2
-	end 
+	end
 	return a
 end
 
 local function getGaps(items, dsize)
-	local gaps = {} 
+	local gaps = {}
 
 	local amt_gaps = #items - 1
     local gap_size = math.floor(dsize/amt_gaps)
@@ -201,8 +201,8 @@ end
 
 local function solveFlexSpaced(group)
 
-	if group.flex == nil then return end 
-	if #group.children == 0 then return end 
+	if group.flex == nil then return end
+	if #group.children == 0 then return end
 
     local sum_item_size = 0
     local dsize = 0
@@ -210,9 +210,9 @@ local function solveFlexSpaced(group)
     local draw_coords = {}
 
 	-- get the total width of the group (sum_item_size) and the amount of space remaining (dsize)
-	if group.flexDirection == nil then 
-		group.flexDirection = FlexDirection.Column 
-	end 
+	if group.flexDirection == nil then
+		group.flexDirection = FlexDirection.Column
+	end
 
     if group.flexDirection == FlexDirection.Row then
 
@@ -238,7 +238,7 @@ local function solveFlexSpaced(group)
 
         draw_coords = calculateRowSpacedCoords(group.children, gaps)
 		setItemFlexCoordinatesY(group.children, draw_coords)
-        
+
 
     elseif group.flexDirection == FlexDirection.Column then
 
@@ -246,6 +246,33 @@ local function solveFlexSpaced(group)
 		setItemFlexCoordinatesX(group.children, draw_coords)
 
     end
+
+end
+
+local function solveArrayCoordsRow(group)
+    local amt_gaps = #group.children - 1
+    local cx = group.children[1].padding
+    local draw_coords = {cx}
+    for i=1, amt_gaps do
+        local item = group.children[i]
+        cx = cx + item.height + item.padding + group.children[i+1].padding + group.spacing
+        table.insert(draw_coords, cx)
+    end
+
+    for i=1, #draw_coords do
+        group.children[i].y = draw_coords[i]
+    end
+end
+
+local function solveArrayCoordsColumn()
+
+end
+
+local function applyOrientationRow()
+
+end
+
+local function applyOrientationColumn()
 
 end
 
@@ -260,33 +287,22 @@ local function solveFlexArray(group)
 
     -- get the sum_item_size
     if group.flexDirection == FlexDirection.Row then
-       for _, item in pairs(group.children) do
-           sum_item_size = sum_item_size + item.height + item.padding * 2
-        end
-
-    elseif group.flexDirection == FlexDirection.Column then
-        for _, item in pairs(group.children) do
-            sum_item_size = sum_item_size + item.width + item.padding * 2
-        end
+        sum_item_size = getSumHeight(group.children)
+    elseif group.flexDirection == FlexDirection.Column or group.flexDirection == nil then
+        sum_item_size = getSumWidth(group.children)
     else
         print("Invalid FlexDirection")
         return
     end
 
-    local cx = 1 + group.children[1].padding
+    local cx = group.children[1].padding
     table.insert(draw_coords, cx)
 
     if group.flexDirection == FlexDirection.Row then
-        for i=1, amt_gaps do
-            local item = group.children[i]
-            cx = cx + item.height + item.padding + group.children[i+1].padding + group.spacing
-            table.insert(draw_coords, cx)
-        end
+        
 
-        for i=1, #draw_coords do
-            group.children[i].y = draw_coords[i]
-        end
         if group.orientation == Orientation.Top then return end
+
         local last_item = group.children[#group.children]
         local tih = last_item.y + last_item.height
         local offset = 0
@@ -299,7 +315,7 @@ local function solveFlexArray(group)
             return
         end
         for i=1, #draw_coords do
-            group.children[i].y = group.children[i].y + offset
+            group.children[i-].y = group.children[i].y + offset
         end
     elseif group.flexDirection == FlexDirection.Column then
         for i=1, amt_gaps do
@@ -336,7 +352,7 @@ end
 
 local function solveFlex(group)
 
-	
+
 	if group.flex == nil then return end
 	if group.flex == Flex.Spaced then
 
@@ -350,7 +366,7 @@ local function solveFlex(group)
         print("Invalid Flex type")
 	end
 
-	for _, item in pairs(group.children) do 
+	for _, item in pairs(group.children) do
 
 		solveFlex(item)
 
@@ -392,9 +408,9 @@ local group = Item:new({
 	ox = 1,
 	oy = 1,
 	color = colors.gray,
-	flex = Flex.Spaced,
-	flexDirection = Flex.Row,
-	orientation = Flex.Top
+	flex = Flex.Array,
+	flexDirection = FlexDirection.Row,
+	orientation = Orientation.Top
 })
 term.setCursorPos(10,10)
 
@@ -402,7 +418,7 @@ local test = Item:new({
 	width = 9,
 	height = 3,
 	color = colors.lightGray,
-	flex = Flex.Spaced,
+	flex = Flex.Array,
 	flexDirection = FlexDirection.Row,
 	orientation = Orientation.Top
 })
@@ -447,32 +463,32 @@ render(group)
 
 --[[
 
-clean up flex array solve 
+clean up flex array solve
 relook flex type verifications (flex.direction == something_bad)
 	default flex will be flex.array where spacing = 0
 rename orientation to flexOrientation
 
-add width % 
+add width %
 
 use buffer?
 	can imagine problems writing text that overlaps two different items
 store all items in a box and render based on z-index
 assign z-index based on nested level
 
-flex resolving 
+flex resolving
 shifting container sizes
 clothesline alignment
 
             ###      ##
 	---#----###------##-
-            ###        
+            ###
 
 
-    ---#----###------##- 
-	        ###      ## 
+    ---#----###------##-
+	        ###      ##
 			###
 
-separate item constructor to its own class 
+separate item constructor to its own class
 
 anchor.lua
 text
@@ -483,7 +499,7 @@ input
 textarea
 
 silhouette rendering? move box, only redraw what needs to be redrawn
-dynamic = true 
+dynamic = true
 	(has buffer that stores colors of stuff underneath it)
 
 scrollX and scrollY
@@ -494,7 +510,7 @@ pages:
 
 sheets:
 	should be very doable with arrays
-	
+
 
 browsing:
 	transmit body item as table?
