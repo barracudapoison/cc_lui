@@ -56,16 +56,33 @@ LUI.FlexDirection = {
 	Row    = 2,
 }
 
+LUI.Unit = {
+	Default = 1,
+	Percent = 2,
+}
+
 -- ─── Item ────────────────────────────────────────────────────────────────────
 
 LUI.Item = {}
 LUI.Item.__index = LUI.Item
 
-function LUI.Item.new(args)
-	local o = setmetatable({}, {__index = LUI.Item})
-	o.id        = assignID()
+function LUI:isPercentage(str)
+    -- Matches one or more digits, optional decimal, ending with %
+	return string.match(str, "^%d+%.?%d*%%$") ~= nil
+end
+
+function LUI:keepInRange(v,min,max)
+	return math.min(math.max(v,min),max)
+end
+
+function LUI.Item.initStyle(o, args)
+	o.text 		= args.text      or ""
 	o.width     = args.width     or 0
 	o.height    = args.height    or 0
+	o.widthUnit = args.widthUnit or LUI.Unit.Default
+	o.heightUnit = args.heightUnit or LUI.Unit.Default
+	o.dwidth    = args.width     or 0
+	o.dheight   = args.height    or 0 
 	o.padding   = args.padding   or 0
 	o.color     = args.color	 or -1
 	o.flex_x    = args.flex_x    or 0
@@ -74,7 +91,14 @@ function LUI.Item.new(args)
 	o.oy        = args.oy        or 0
 	o.x         = args.x         or 0
 	o.y         = args.y         or 0
-	o.text 		= args.text      or ""	
+	o.cox 		= args.cox 		 or 0
+	o.coy  		= args.coy		 or 0
+	o.minWidth  = args.minWidth  or 0
+	o.maxWidth  = args.maxWidth  or 256 
+	o.minHeight = args.minHeight or 0 
+	o.maxHeight = args.maxHeight or 256 
+	
+	o.visible   = (args.visible ~= false)
 	o.flex          = args.flex
 	o.flexDirection = args.flexDirection
 	o.orientation   = args.orientation
@@ -82,7 +106,20 @@ function LUI.Item.new(args)
 	o.fillDecoration      = args.fillDecoration
 	o.fillDecorationColor = args.fillDecorationColor
 	o.children = {}
+	o.class = {}
+end
+
+function LUI.Item.new(args)
+	local o = setmetatable({}, {__index = LUI.Item})
+	o.id        = assignID()
+	LUI.Item.initStyle(o, args)
 	return o
+end
+
+function LUI.Item:setStyle(args)
+	for k, v in pairs(args) do 
+		self[k] = v
+	end
 end
 
 function LUI.Item:setPosition(x, y)
@@ -100,6 +137,23 @@ function LUI.Item:setSize(w, h)
 	self.height = h
 end
 
+
+function LUI.Item:getWidth()
+	if self.widthUnit == LUI.Unit.Default then 
+		return LUI:keepInRange(self.width, self.minWidth, self.maxWidth) 
+	elseif self.widthUnit == LUI.Unit.Percent then 
+		return LUI:keepInRange(self.parent:getWidth() * self.width, self.minWidth, self.maxWidth)
+	end
+end
+
+function LUI.Item:getHeight()
+	if self.heightUnit == LUI.Unit.Default then 
+		return LUI:keepInRange(self.height, self.minHeight, self.maxHeight)
+	elseif self.heightUnit == LUI.Unit.Percent then 
+		return LUI:keepInRange(self.parent:getHeight() * self.height, self.minHeight, self.maxHeight)
+	end
+end
+
 function LUI.Item:addChild(item)
 	table.insert(self.children, item)
 	item.parent = self
@@ -114,10 +168,12 @@ function LUI.Item:translate(x, y)
 	self.y = self.y + y
 end
 
+
 function LUI.Item:getCoords()
 	local px, py = 0, 0
 	if self.parent then
 		px, py = self.parent:getCoords()
+		px, py = px + self.parent.cox, py + self.parent.coy
 	end
 	return self.x + self.ox + self.flex_x + px,
 	       self.y + self.oy + self.flex_y + py
@@ -160,7 +216,7 @@ end
 function LUI:getSumWidth(items)
 	local a = 0
 	for _, item in pairs(items) do
-		a = a + item.width + item.padding * 2
+		a = a + item:getWidth() + item.padding * 2
 	end
 	return a
 end
@@ -188,7 +244,7 @@ function LUI:calculateRowSpacedCoords(items, gaps)
 	local cx = 0
 	local draw_coords = {cx}
 	for i = 1, #items - 1 do
-		cx = cx + items[i].height + items[i].padding + items[i+1].padding + gaps[i]
+		cx = cx + items[i]:getHeight() + items[i].padding + items[i+1].padding + gaps[i]
 		table.insert(draw_coords, cx)
 	end
 	return draw_coords
@@ -199,7 +255,7 @@ function LUI:calculateColumnSpacedCoords(items, gaps)
 	local cx = 0
 	local draw_coords = {cx}
 	for i = 1, #items - 1 do
-		cx = cx + items[i].width + items[i].padding + items[i+1].padding + gaps[i]
+		cx = cx + items[i]:getWidth() + items[i].padding + items[i+1].padding + gaps[i]
 		table.insert(draw_coords, cx)
 	end
 	return draw_coords
@@ -226,10 +282,10 @@ function LUI:solveFlexSpaced(group)
 	-- Column: children sit side-by-side, so measure width
 	if group.flexDirection == self.FlexDirection.Row then
 		sum_item_size = self:getSumHeight(group.children)
-		dsize         = group.height - sum_item_size
+		dsize         = group:getHeight() - sum_item_size
 	elseif group.flexDirection == self.FlexDirection.Column then
 		sum_item_size = self:getSumWidth(group.children)
-		dsize         = group.width - sum_item_size
+		dsize         = group:getWidth() - sum_item_size
 	else
 		error("Invalid FlexDirection")
 	end
@@ -245,12 +301,29 @@ function LUI:solveFlexSpaced(group)
 	end
 end
 
+
+
+function LUI:solveStaticArrayWidth(group)
+	-- get size (width + 2 * padding + spacing) of everything other than 
+	-- percentage widths
+	local tsiw = 0
+	for _, item in pairs(group.children) do 
+		if self:isPercentage(item:getWidth()) then 
+
+		end
+	end
+end
+
+function LUI:solveStaticHeight(group)
+
+end
+
 function LUI:solveArrayCoordsRow(group)
 	local cx          = group.children[1].padding
 	local draw_coords = {cx}
 	for i = 1, #group.children - 1 do
 		local item = group.children[i]
-		cx = cx + item.height + item.padding + group.children[i+1].padding + group.spacing
+		cx = cx + item:getHeight() + item.padding + group.children[i+1].padding + group.spacing
 		table.insert(draw_coords, cx)
 	end
 	return draw_coords
@@ -261,7 +334,7 @@ function LUI:solveArrayCoordsColumn(group)
 	local draw_coords = {cx}
 	for i = 1, #group.children - 1 do
 		local item = group.children[i]
-		cx = cx + item.width + item.padding + group.children[i+1].padding + group.spacing
+		cx = cx + item:getWidth() + item.padding + group.children[i+1].padding + group.spacing
 		table.insert(draw_coords, cx)
 	end
 	return draw_coords
@@ -272,11 +345,11 @@ function LUI:solveArrayOffsetRow(group)
 		return 0
 	end
 	local last = group.children[#group.children]
-	local tih  = last.flex_y + last.height
+	local tih  = last.flex_y + last:getHeight()
 	if group.orientation == self.FlexOrientation.Bottom then
-		return group.height - tih - last.padding
+		return group:getHeight() - tih - last.padding
 	elseif group.orientation == self.FlexOrientation.Middle then
-		return math.floor((group.height - tih) / 2)
+		return math.floor((group:getHeight() - tih) / 2)
 	else
 		error("Invalid FlexOrientation")
 	end
@@ -287,11 +360,11 @@ function LUI:solveArrayOffsetColumn(group)
 		return 0
 	end
 	local last = group.children[#group.children]
-	local tiw  = last.flex_x + last.width
+	local tiw  = last.flex_x + last:getWidth()
 	if group.orientation == self.FlexOrientation.Right then
-		return group.width - tiw - last.padding
+		return group:getWidth() - tiw - last.padding
 	elseif group.orientation == self.FlexOrientation.Middle then
-		return math.floor((group.width - tiw) / 2)
+		return math.floor((group:getWidth() - tiw) / 2)
 	else
 		error("Invalid FlexOrientation")
 	end
@@ -307,6 +380,11 @@ end
 
 function LUI:sortMinMax(v1, v2)
 	return math.min(v1, v2), math.max(v1, v2)
+end
+
+function LUI:percentToDecimal(s)
+	local numeric = string.match(s, "[%d%.]+")
+	return tonumber(numeric) / 100.0
 end
 
 function LUI:solveFlexArray(group)
@@ -325,8 +403,11 @@ function LUI:solveFlexArray(group)
 end
 
 function LUI:solveFlex(group)
-	if group.flex == nil then return end
-	if group.flex == self.Flex.Spaced then
+	
+	if group.flex == nil then 
+		-- ignore i guess. cant figure out a better code pattern
+		-- that keeps the children being solved
+	elseif group.flex == self.Flex.Spaced then
 		self:solveFlexSpaced(group)
 	elseif group.flex == self.Flex.Array then
 		self:solveFlexArray(group)
@@ -354,15 +435,20 @@ function LUI:drawFilledBox(x1, y1, x2, y2, color1, color2, char)
 end
 
 function LUI:drawItem(item)
+	if item.visible == false then 
+		return 
+	end
 	local x, y = item:getCoords()
-	self:drawFilledBox(
-		x, y,
-		x + item.width, y + item.height,
-		item.color,
-		item.fillDecorationColor or item.color,
-		item.fillDecoration or " "
-	)	
-	if item.text then 
+	if item.color then 
+		self:drawFilledBox(
+			x, y,
+			x + item:getWidth(), y + item:getHeight(),
+			item.color,
+			item.fillDecorationColor or item.color,
+			item.fillDecoration or " "
+		)	
+	end
+	if item.text ~= "" and item.text ~= nil then 
 		if item.textColor then 
 			term.setTextColor(LUI.CCColor[item.textColor])
 		end
@@ -386,3 +472,75 @@ function LUI:readMeasure(c)
 	term.setCursorPos(1, c)
 	term.write(s)
 end
+
+function LUI:update(group)
+	term.clear()
+	LUI:solveFlex(group)
+	LUI:render(group)
+
+end
+
+
+--[[
+
+item.lua
+flex.lua
+anchor.lua
+render.lua
+input.lua
+
+
+
+
+Flex.Unit.Fill
+
+After solving percent widths and keeping static widths,
+use the remaining space for Flex.Unit.Fill
+
+group.height = 24
+
+Item1
+	height = 0.2
+	heightUnit = Flex.Unit.Percent
+	max_height = 3
+
+Item2
+	height = 1
+	heightUnit = Flex.Unit.Fill
+
+Item3 
+	height = 2
+	heightUnit = Flex.Unit.Fill
+
+Item4 
+	height = 3
+
+notice that item3 is twice as tall as item2.
+Unit.Fill is multiplicative, and based on the remaining space left after the static widths and percent widths
+are calculated
+
+1
+1
+1
+ 2
+ 2
+ 2
+ 2
+ 2
+ 2
+  3
+  3
+  3
+  3
+  3
+  3
+  3
+  3
+  3
+  3
+  3
+  3
+   4
+   4
+   4
+]]
