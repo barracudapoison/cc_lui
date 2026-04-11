@@ -33,7 +33,7 @@ function Item.initStyle(o, args)
 	o.visible   = (args.visible ~= false)
 	o.flex          = args.flex
 	o.flexDirection = args.flexDirection
-	o.orientation   = args.orientation
+	o.flexOrientation   = args.flexOrientation
 	o.spacing       = args.spacing or 0
 	o.fillDecoration      = args.fillDecoration
 	o.fillDecorationColor = args.fillDecorationColor

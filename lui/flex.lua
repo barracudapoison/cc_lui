@@ -142,14 +142,14 @@ function Flex:solveArrayCoordsColumn(group)
 end
 
 function Flex:solveArrayOffsetRow(group)
-	if group.orientation == self.Orientation.Top or group.orientation == nil then
+	if group.flexOrientation == self.Orientation.Top or group.flexOrientation == nil then
 		return 0
 	end
 	local last = group.children[#group.children]
 	local tih  = last.flex_y + last:getHeight()
-	if group.orientation == self.Orientation.Bottom then
+	if group.flexOrientation == self.Orientation.Bottom then
 		return group:getHeight() - tih - last.padding
-	elseif group.orientation == self.Orientation.Middle then
+	elseif group.flexOrientation == self.Orientation.Middle then
 		return math.floor((group:getHeight() - tih) / 2)
 	else
 		error("Invalid Orientation")
@@ -157,14 +157,15 @@ function Flex:solveArrayOffsetRow(group)
 end
 
 function Flex:solveArrayOffsetColumn(group)
-	if group.orientation == self.Orientation.Left or group.orientation == nil then
+	if group.flexOrientation == self.Orientation.Left or group.flexOrientation == nil then
+		print(group.flexOrientation)
 		return 0
 	end
 	local last = group.children[#group.children]
 	local tiw  = last.flex_x + last:getWidth()
-	if group.orientation == self.Orientation.Right then
+	if group.flexOrientation == self.Orientation.Right then
 		return group:getWidth() - tiw - last.padding
-	elseif group.orientation == self.Orientation.Middle then
+	elseif group.flexOrientation == self.Orientation.Middle then
 		return math.floor((group:getWidth() - tiw) / 2)
 	else
 		error("Invalid Orientation")
